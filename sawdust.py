@@ -49,10 +49,9 @@ def lines_from_dir(filepat, dirname=None):
     file_lines = gen_cat(files)
     return file_lines
 
-def obpm_log(lines, format_str='{severity}, "{timestamp}", {engine}, {main}, {thread}, "{message}"'):
-    full_line = ''
+def obpm_log(lines):
     print_next_line = False
-    line_param = {}
+    line_param = {'message': ''}
     # <D>, "Nov 6, 2012 3:48:32 PM", Engine, Main, <12> [ACTIVE] ExecuteThre, "Activity '/CSPSProcess#Default-6.1/LogOutException[CheckSpaceAvailability]' is receiving instance '/CSPSProcess#Default-6.1/10811/0'."
 
     #0         1         2         3         4         5         6         7
@@ -65,15 +64,8 @@ def obpm_log(lines, format_str='{severity}, "{timestamp}", {engine}, {main}, {th
         for line in lines:
             line = line.strip()
             if line.startswith('00'):
-                if full_line != '':
-                    if print_next_line:
-                        print >> sys.stderr, full_line
-                        print full_line
-                        print_next_line = False
-                    # print full_line
-                    # log.append(full_line)
-                    yield full_line
-                    full_line = ''
+                if line_param['message']:
+                    yield line_param
                     line_param = {}
 
                 severity = line[54:58]
@@ -93,10 +85,8 @@ def obpm_log(lines, format_str='{severity}, "{timestamp}", {engine}, {main}, {th
                 line_param['thread'] = line[29:54]
                 line_param['timestamp'] = time.strftime('%b %d, %Y %H:%M:%S', time.strptime(line[58:73], '%Y%m%dT%H%M%S'))
                 line_param['message'] = ''
-                full_line = (format_str).format(**line_param)
             else:
                 line_param['message'] += line[4:]
-                full_line = (format_str).format(**line_param)
     except KeyError:
         print >> sys.stderr, 'ERROR: Invalid OBPM log line "%s"' % line
         sys.exit(200)
@@ -163,9 +153,19 @@ def follow_stdin():
                 break
             yield line
 
-class StdoutTransport():
+class StdoutTransport(object):
     def send(self, line):
         print line
+
+
+class ObpmFilter(object):
+    def __init__(self, lines, line_format):
+        self.lines = lines
+        self.line_format = line_format
+
+    def filter(self):
+        for line in self.lines:
+            yield self.line_format.format(**line)
 
 
 def transport_resolver(which_transport):
@@ -201,7 +201,8 @@ if __name__ == '__main__':
 
     if args.filter:
         if args.filter == 'obpm':
-            log = obpm_log(lines, args.fmt if args.fmt else '<{severity}>, "{timestamp}", {engine}, {main}, {thread}, "{message}"')
+            log = obpm_log(lines)
+            log = ObpmFilter(log, args.fmt if args.fmt else '<{severity}>, "{timestamp}", {engine}, {main}, {thread}, "{message}"').filter()
     else:
         log = lines
 
