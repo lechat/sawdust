@@ -3,6 +3,7 @@
 # Process an log file(s)
 import re
 import os
+import os.path
 import fnmatch
 import sys
 import time
@@ -153,10 +154,6 @@ def follow_stdin():
                 break
             yield line
 
-class StdoutTransport(object):
-    def send(self, line):
-        print line
-
 
 class ObpmFilter(object):
     def __init__(self, lines, line_format):
@@ -169,8 +166,19 @@ class ObpmFilter(object):
 
 
 def transport_resolver(which_transport):
+
+    def import_file(path_to_module):
+        """Note: path to module must be a relative path starting from a directory in sys.path"""
+        module_dir, module_file = os.path.split(path_to_module)
+        module_name, _module_ext = os.path.splitext(module_file)
+        module_package = ".".join(module_dir.split(os.path.sep)) + '.' + module_name
+
+        module_obj = __import__(module_package, fromlist=['*'])
+        module_obj.__file__ = path_to_module
+        return module_obj
+
     if which_transport == None or which_transport == 'stdout':
-        return StdoutTransport()
+        return import_file('transports/stdout.py')
     else:
         print 'ERROR: Transport "%s" is not supported' % which_transport
         return None
