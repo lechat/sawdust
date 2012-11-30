@@ -177,27 +177,41 @@ def transport_resolver(which_transport):
         module_obj.__file__ = path_to_module
         return module_obj
 
-    if which_transport == None or which_transport == 'stdout':
-        return import_file('transports/stdout.py')
-    else:
-        print 'ERROR: Transport "%s" is not supported' % which_transport
-        return None
+    if which_transport == None:
+        which_transport = 'stdout'
+
+    transport_instance = None
+    try:
+        transport_instance = import_file('transports/' + which_transport).get_instance()
+    except ImportError:
+        print 'Transport "%s" is not found in transports' % which_transport
+        sys.exit(1)
+
+    return transport_instance
+    # else:
+    #     import
+    #     print 'ERROR: Transport "%s" is not supported' % which_transport
+    #     return None
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser('obpm_logs.py')
-    parser.add_argument('--pattern', dest='fmt', required=False, help='Format string for output. Available parameters to output are: {severity}, {long_severity}, {engine}, {thread}, {main}, {timestamp}, {message}')
+    parser.add_argument('-p', '--pattern', dest='fmt', required=False, help='Format string for output. Available parameters to output are: {severity}, {long_severity}, {engine}, {thread}, {main}, {timestamp}, {message}')
     parser.add_argument('-f', '--follow', action='store_true', dest='follow', required=False, help='Follow file like tail -f')
     parser.add_argument('-p', '--processor', dest='filter', choices=['obpm'], type=str, default='obpm', required=False, help='Log line filter')
+    parser.add_argument('-c', '--config', dest='config_path', type=str, required=False, help='Path to sawdust configuration file')
 
     parser.add_argument('logfile', nargs='?', help="OBPM Engine log file to read. If not specified - it will be read from STDIN")
     parser.add_argument('transport', nargs='?', help='Send log lines to specified transport. It it is omitted - send to stdout')
 
     args = parser.parse_args()
 
-    transport = transport_resolver(args.transport)
-    if not transport:
-        sys.exit(201)
+    if args.config_path:
+        pass
+    else:
+        transport = transport_resolver(args.transport)
+        if not transport:
+            sys.exit(201)
 
     if args.follow:
         lines = follow(args.logfile)
