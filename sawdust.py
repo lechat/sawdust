@@ -1,21 +1,26 @@
 # sawdust.py
 #
 # Process an log file(s)
-import re
 import os
 import os.path
 import fnmatch
 import sys
+import re
 import time
 
-re1 = '<([^>]*)>#*<([^>]+)> <(\w+)> <(\w+)> <([^>]+)> <(\w+)> <([^>]+)> <<([^>]+)>> <(\S*)> <(\S*)> <([^>]+)> <([^>]+)> <([^>]+)>'
-re1_old = '.?<([^>]+)> <(\w+)> <(\w+)> <([^>]+)> <(\w+)> <([^>]+)> <<([^>]+)>> <(\S*)> <(\S*)> <([^>]+)> <([^>]+)> <([^>]+)>'
+def import_file(path_to_module):
+    """Note: path to module must be a relative path starting from a directory in sys.path"""
+    module_dir, module_file = os.path.split(path_to_module)
+    module_name, _module_ext = os.path.splitext(module_file)
+    module_package = ".".join(module_dir.split(os.path.sep)) + '.' + module_name
 
-logpat   = re.compile(re1)
+    module_obj = __import__(module_package, fromlist=['*'])
+    module_obj.__file__ = path_to_module
+    return module_obj
 
 def gen_find(filepat, top):
     for path, _, filelist in os.walk(top):
-        for name in fnmatch.filter(filelist, filepat):
+        for name in fnmatch.processor(filelist, filepat):
             yield os.path.join(path, name)
 
 def gen_cat(sources):
@@ -50,58 +55,6 @@ def lines_from_dir(filepat, dirname=None):
     file_lines = gen_cat(files)
     return file_lines
 
-def obpm_log(lines):
-    print_next_line = False
-    line_param = {'message': ''}
-    # <D>, "Nov 6, 2012 3:48:32 PM", Engine, Main, <12> [ACTIVE] ExecuteThre, "Activity '/CSPSProcess#Default-6.1/LogOutException[CheckSpaceAvailability]' is receiving instance '/CSPSProcess#Default-6.1/10811/0'."
-
-    #0         1         2         3         4         5         6         7
-    #01234567890123456789012345678901234567890123456789012345678901234567890123
-    #0001Engine         Main      <12> [ACTIVE] ExecuteThre000120121106T154832
-    #-001Activity '/CSPSProcess\#Default-6.1/LogOutException[CheckSpaceAvailab
-    #-002ility]' is receiving instance '/CSPSProcess\#Default-6.1/10811/0'.
-    #-003
-    try:
-        for line in lines:
-            line = line.strip()
-            if line.startswith('00'):
-                if line_param['message']:
-                    yield line_param
-                    line_param = {}
-
-                severity = line[54:58]
-                if severity == '0001':
-                    line_param['severity'] = 'D'
-                    line_param['long_severity'] = 'Debug'
-                elif severity == '0101':
-                    line_param['severity'] = 'I'
-                    line_param['long_severity'] = 'Info'
-                else:
-                    print_next_line = True
-                    print >> sys.stderr, line
-                    line_param['severity'] = '<U>'
-
-                line_param['engine'] = line[4:19].strip()
-                line_param['main'] = line[19:29].strip()
-                line_param['thread'] = line[29:54]
-                line_param['timestamp'] = time.strftime('%b %d, %Y %H:%M:%S', time.strptime(line[58:73], '%Y%m%dT%H%M%S'))
-                line_param['message'] = ''
-            else:
-                line_param['message'] += line[4:]
-    except KeyError:
-        print >> sys.stderr, 'ERROR: Invalid OBPM log line "%s"' % line
-        sys.exit(200)
-
-def wl_log(lines):
-    log = ''
-
-    groups = (logpat.search(line) for line in lines)
-    tuples = (g.groups() for g in groups if g)
-    colnames = ('filename', 'timestamp', 'severity', 'subsystem', 'machine', 'server', 'thread_id', 'user_id', 'transaction_id', 'diag_ctx_id', 'raw_time', 'bea_id', 'message')
-
-    log = (dict(zip(colnames, t)) for t in tuples)
-
-    return log
 
 def read_prop_file(properties_file):
     properties = {}
@@ -155,80 +108,62 @@ def follow_stdin():
             yield line
 
 
-class ObpmFilter(object):
-    def __init__(self, lines, line_format):
-        self.lines = lines
-        self.line_format = line_format
 
-    def filter(self):
-        for line in self.lines:
-            yield self.line_format.format(**line)
+def class_factory(class_type, which_class, *args, **kwargs):
+    class_instance = None
+    try:
+        class_instance = import_file(class_type + '/' + which_class).get_instance(*args, **kwargs)
+    except ImportError:
+        print '%s "%s" is not found' % (class_type, which_class)
+        sys.exit(1)
 
+    return class_instance
 
-def transport_resolver(which_transport):
-
-    def import_file(path_to_module):
-        """Note: path to module must be a relative path starting from a directory in sys.path"""
-        module_dir, module_file = os.path.split(path_to_module)
-        module_name, _module_ext = os.path.splitext(module_file)
-        module_package = ".".join(module_dir.split(os.path.sep)) + '.' + module_name
-
-        module_obj = __import__(module_package, fromlist=['*'])
-        module_obj.__file__ = path_to_module
-        return module_obj
-
+def transport_resolver(which_transport, *args, **kwargs):
     if which_transport == None:
         which_transport = 'stdout'
 
-    transport_instance = None
-    try:
-        transport_instance = import_file('transports/' + which_transport).get_instance()
-    except ImportError:
-        print 'Transport "%s" is not found in transports' % which_transport
-        sys.exit(1)
+    return class_factory('transports', which_transport, *args, **kwargs)
 
-    return transport_instance
-    # else:
-    #     import
-    #     print 'ERROR: Transport "%s" is not supported' % which_transport
-    #     return None
+def processor_resolver(which_processor, *args, **kwargs):
+    return class_factory('processors', which_processor, *args, **kwargs)
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser('obpm_logs.py')
+    parser = argparse.ArgumentParser('sawdust.py')
     parser.add_argument('-p', '--pattern', dest='fmt', required=False, help='Format string for output. Available parameters to output are: {severity}, {long_severity}, {engine}, {thread}, {main}, {timestamp}, {message}')
     parser.add_argument('-f', '--follow', action='store_true', dest='follow', required=False, help='Follow file like tail -f')
-    parser.add_argument('-p', '--processor', dest='filter', choices=['obpm'], type=str, default='obpm', required=False, help='Log line filter')
+    parser.add_argument('-p', '--processor', dest='processor', choices=['obpm'], type=str, default='obpm', required=False, help='Log line processor')
     parser.add_argument('-c', '--config', dest='config_path', type=str, required=False, help='Path to sawdust configuration file')
 
     parser.add_argument('logfile', nargs='?', help="OBPM Engine log file to read. If not specified - it will be read from STDIN")
     parser.add_argument('transport', nargs='?', help='Send log lines to specified transport. It it is omitted - send to stdout')
 
-    args = parser.parse_args()
+    arguments = parser.parse_args()
 
-    if args.config_path:
+    logfiles = {}
+    if arguments.config_path:
+        # TODO: add config handling
         pass
-    else:
-        transport = transport_resolver(args.transport)
-        if not transport:
-            sys.exit(201)
 
-    if args.follow:
-        lines = follow(args.logfile)
-    else:
-        if args.logfile:
-            lines = lines_from_dir(args.logfile)
-        else:
+    if not logfiles:
+        logfiles[arguments.logfile] = {}
+        logfiles[arguments.logfile]['follow'] = arguments.follow
+        logfiles[arguments.logfile]['transports'] = [transport_resolver(arguments.transport)]
+        logfiles[arguments.logfile]['processors'] = [processor_resolver(arguments.processor, arguments.fmt if arguments.fmt else '<{severity}>, "{timestamp}", {engine}, {main}, {thread}, "{message}"')]
+
+    for logfile, logparams in logfiles.iteritems():
+        if logfile == 'stdin':
             lines = follow_stdin()
+        else:
+            if logparams['follow']:
+                lines = follow(logfile)
+            else:
+                lines = lines_from_dir(logfile)
 
-    if args.filter:
-        if args.filter == 'obpm':
-            log = obpm_log(lines)
-            log = ObpmFilter(log, args.fmt if args.fmt else '<{severity}>, "{timestamp}", {engine}, {main}, {thread}, "{message}"').filter()
-    else:
-        log = lines
-
-    for dust in log:
-        transport.send(dust)
+        for processor in logparams['processors']:
+            for dust in processor.processor(lines):
+                for transport in logparams['transports']:
+                    transport.send(dust)
 
 
