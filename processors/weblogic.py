@@ -1,8 +1,7 @@
 import re
 
 class WeblogicFilter(object):
-    def __init__(self, lines, line_format):
-        self.lines = lines
+    def __init__(self, line_format):
         self.line_format = line_format
         re1 = '<([^>]*)>#*<([^>]+)> <(\w+)> <(\w+)> <([^>]+)> <(\w+)> <([^>]+)> <<([^>]+)>> <(\S*)> <(\S*)> <([^>]+)> <([^>]+)> <([^>]+)>'
         # re1_old = '.?<([^>]+)> <(\w+)> <(\w+)> <([^>]+)> <(\w+)> <([^>]+)> <<([^>]+)>> <(\S*)> <(\S*)> <([^>]+)> <([^>]+)> <([^>]+)>'

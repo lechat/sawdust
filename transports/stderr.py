@@ -1,11 +1,12 @@
 import sys
 
-class stdoutTransport(object):
+class stderrTransport(object):
     def __init__(self, *args, **kwargs):
         pass
 
     def send(self, line, logfile='', logtype='', tags='', fields=''):
-        sys.stdout.write(line + '\n')
+        sys.stderr.write(line + '\n')
 
 def get_instance(*args, **kwargs):
-    return stdoutTransport(*args, **kwargs)
+    return stderrTransport(*args, **kwargs)
+

@@ -2,8 +2,8 @@ import sys
 import time
 
 class ObpmFilter(object):
-    def __init__(self, lines, line_format):
-        self.lines = lines
+    def __init__(self, line_format):
+        print 'DEBUG: ObpmFilter __init__ line_format=%s' % line_format
         self.line_format = line_format
 
     def _obpm_log(self, lines):

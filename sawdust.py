@@ -4,6 +4,7 @@
 import os
 import os.path
 import fnmatch
+import pprint
 import sys
 import re
 import time
@@ -108,14 +109,13 @@ def follow_stdin():
             yield line
 
 
-
 def class_factory(class_type, which_class, *args, **kwargs):
     class_instance = None
-    try:
-        class_instance = import_file(class_type + '/' + which_class).get_instance(*args, **kwargs)
-    except ImportError:
-        print '%s "%s" is not found' % (class_type, which_class)
-        sys.exit(1)
+    # try:
+    class_instance = import_file(class_type + '/' + which_class).get_instance(*args, **kwargs)
+    # except ImportError:
+    #     print '%s "%s" is not found' % (class_type, which_class)
+    #     sys.exit(1)
 
     return class_instance
 
@@ -131,10 +131,11 @@ def processor_resolver(which_processor, *args, **kwargs):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser('sawdust.py')
-    parser.add_argument('-p', '--pattern', dest='fmt', required=False, help='Format string for output. Available parameters to output are: {severity}, {long_severity}, {engine}, {thread}, {main}, {timestamp}, {message}')
+    parser.add_argument('-t', '--pattern', dest='fmt', required=False, help='Format string for output. Available parameters to output are: {severity}, {long_severity}, {engine}, {thread}, {main}, {timestamp}, {message}')
     parser.add_argument('-f', '--follow', action='store_true', dest='follow', required=False, help='Follow file like tail -f')
-    parser.add_argument('-p', '--processor', dest='processor', choices=['obpm'], type=str, default='obpm', required=False, help='Log line processor')
+    parser.add_argument('-p', '--processor', dest='processor', choices=['obpm', 'weblogic'], type=str, default='obpm', required=False, help='Log line processor')
     parser.add_argument('-c', '--config', dest='config_path', type=str, required=False, help='Path to sawdust configuration file')
+    parser.add_argument('-v', '--verbose', dest='verbose', type=bool, required=False, help='Be verbose')
 
     parser.add_argument('logfile', nargs='?', help="OBPM Engine log file to read. If not specified - it will be read from STDIN")
     parser.add_argument('transport', nargs='?', help='Send log lines to specified transport. It it is omitted - send to stdout')
@@ -143,14 +144,36 @@ if __name__ == '__main__':
 
     logfiles = {}
     if arguments.config_path:
-        # TODO: add config handling
-        pass
+        cfg_list = import_file(arguments.config_path).__config__
+        for logfile_config in cfg_list:
+            for logfile in logfile_config['filenames']:
+                log_item = logfiles.setdefault(logfile, {})
+                log_item['follow'] = logfile_config['follow']
+                log_item['type'] = logfile_config['type']
+                for transport in logfile_config['transports']:
+                    log_item.setdefault('transports', {})
+                    if transport[0] in log_item['transports'].keys():
+                        print 'WARNING: Transport "%s" defined more than once for "%s" file(s). Skipping' % (transport[0], logfile)
+                        continue
+                    log_item['transports'][transport[0]] = transport_resolver(transport[0], *transport[1:])
+                for processor in logfile_config['processors']:
+                    log_item.setdefault('processors', {})
+                    if processor[0] in log_item['processors'].keys():
+                        print 'WARNING: Processor "%s" defined more than once for "%s" file(s). Skipping' % (processor[0], logfile)
+                        continue
+                    log_item['processors'][processor[0]] = processor_resolver(processor[0], *processor[1:])
+# TODO: add tags
+# TODO: add fields
 
     if not logfiles:
         logfiles[arguments.logfile] = {}
         logfiles[arguments.logfile]['follow'] = arguments.follow
         logfiles[arguments.logfile]['transports'] = [transport_resolver(arguments.transport)]
         logfiles[arguments.logfile]['processors'] = [processor_resolver(arguments.processor, arguments.fmt if arguments.fmt else '<{severity}>, "{timestamp}", {engine}, {main}, {thread}, "{message}"')]
+
+    if arguments.verbose:
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(logfiles)
 
     for logfile, logparams in logfiles.iteritems():
         if logfile == 'stdin':
@@ -161,9 +184,9 @@ if __name__ == '__main__':
             else:
                 lines = lines_from_dir(logfile)
 
-        for processor in logparams['processors']:
+        for processor in logparams['processors'].values():
             for dust in processor.processor(lines):
-                for transport in logparams['transports']:
-                    transport.send(dust)
+                for transport in logparams['transports'].values():
+                    transport.send(dust, logfile=logfile, logtype=logparams['type'])
 
 
