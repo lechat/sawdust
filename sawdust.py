@@ -144,12 +144,13 @@ if __name__ == '__main__':
 
     logfiles = {}
     if arguments.config_path:
-        cfg_list = import_file(arguments.config_path).__config__
+        cfg_list = import_file(arguments.config_path).config
         for logfile_config in cfg_list:
             for logfile in logfile_config['filenames']:
                 log_item = logfiles.setdefault(logfile, {})
                 log_item['follow'] = logfile_config['follow']
                 log_item['type'] = logfile_config['type']
+                log_item['tags'] = logfile_config['tags']
                 for transport in logfile_config['transports']:
                     log_item.setdefault('transports', {})
                     if transport[0] in log_item['transports'].keys():
@@ -162,8 +163,8 @@ if __name__ == '__main__':
                         print 'WARNING: Processor "%s" defined more than once for "%s" file(s). Skipping' % (processor[0], logfile)
                         continue
                     log_item['processors'][processor[0]] = processor_resolver(processor[0], *processor[1:])
+
 # TODO: add tags
-# TODO: add fields
 
     if not logfiles:
         logfiles[arguments.logfile] = {}
@@ -187,6 +188,6 @@ if __name__ == '__main__':
         for processor in logparams['processors'].values():
             for dust in processor.processor(lines):
                 for transport in logparams['transports'].values():
-                    transport.send(dust, logfile=logfile, logtype=logparams['type'])
+                    transport.send(dust, logfile=logfile, logtype=logparams['type'], tags=logparams['tags'])
 
 
