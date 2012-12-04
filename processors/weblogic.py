@@ -18,8 +18,9 @@ class WeblogicFilter(object):
 
         return log
 
-    def filter(self, lines):
+    def processor(self, lines):
         for line in self._wl_log(lines):
+            print line
             yield self.line_format.format(**line)
 
 def get_instance(*args, **kwargs):
